@@ -24,13 +24,16 @@ const canbus = new (require('./canboatjs').canbus)({})
 const util = require('util')
 
 var pilot_state = 'standby';
-var ac12mode = 'headinghold';
+// var ac12mode = 'headinghold';
+var ac12mode = 'navigation';
 var lastac12mode = '';
-var ac12state = 'standby';
+var ac12state = 'engaged';
 var part = 0
 var wind_apparent_deg
 var wind_target_deg
-var cts_rad
+var cts_internal_rad = -6.370451767799999
+var radians_per_degree = 0.01745329252
+var cts_rad = "00,ff"
 
 function hex2bin(hex){
     return ("00000000" + (parseInt(hex, 16)).toString(2)).substr(-8);
@@ -154,7 +157,8 @@ var commission_reply = {
 }
 
 var heading;
-var heading_rad = 'ff,ff';
+// var heading_rad = 'ff,ff';
+var heading_rad = '0a,0a';
 var locked_heading;
 var locked_heading_rad = 'ff,ff';
 var mag_variation;
@@ -366,21 +370,25 @@ function AC12_PGN127237 () {
       "headinghold": "%s,2,127237,%s,%s,15,ff,3f,ff,ff,7f,%s,00,00,ff,ff,ff,ff,ff,7f,ff,ff,ff,ff,%s",    // True
       // "wind":        "%s,2,127237,%s,%s,15,ff,7f,ff,ff,7f,ff,ff,00,00,ff,ff,ff,ff,ff,7f,ff,ff,ff,ff,%s", // Magnetic
       "wind":        "%s,2,127237,%s,%s,15,ff,3f,ff,ff,7f,ff,ff,00,00,ff,ff,ff,ff,ff,7f,ff,ff,ff,ff,%s", // True
-      // "standby":  "%s,2,127237,%s,%s,15,ff,7f,ff,ff,7f,ff,ff,00,00,ff,ff,ff,ff,ff,7f,ff,ff,ff,ff,%s" // Magnetic
-      "standby"    : "%s,2,127237,%s,%s,15,ff,3f,ff,ff,7f,ff,ff,00,00,ff,ff,ff,ff,ff,7f,ff,ff,ff,ff,%s" // True
+       "standby":  "%s,2,127237,%s,%s,15,ff,7f,ff,ff,7f,ff,ff,00,00,ff,ff,ff,ff,ff,7f,ff,ff,ff,ff,%s" // Magnetic
+      // "standby"    : "%s,2,127237,%s,%s,15,ff,3f,ff,ff,7f,ff,ff,00,00,ff,ff,ff,ff,ff,7f,ff,ff,ff,ff,%s" // True
   }
 
+  cts_units = cts_internal_rad / 0.0001;
+  cts_rad_local = padd((cts_units & 0xff).toString(16), 2) + "," + padd(((cts_units >> 8) & 0xff).toString(16), 2);
   if (ac12state == 'engaged') {
+    debug('PGN127237: Rad local %s internal: %s units %s', cts_rad_local, cts_internal_rad, cts_units)
     switch (ac12mode) {
       case 'navigation':
-        var msg = util.format(heading_track_pgn[ac12mode], (new Date()).toISOString(), canbus.candevice.address,255, cts_rad, heading_rad)
+        var msg = util.format(heading_track_pgn[ac12mode], (new Date()).toISOString(), canbus.candevice.address,255, cts_rad_local, heading_rad)
+        debug('PGN127237: %s', msg)
         canbus.sendPGN(msg);
         break;
       case 'headinghold':
-        var msg = util.format(heading_track_pgn[ac12mode], (new Date()).toISOString(), canbus.candevice.address,255, locked_heading_rad, heading_rad)
+        var msg = util.format(heading_track_pgn[ac12mode], (new Date()).toISOString(), canbus.candevice.address,255, cts_rad_local, heading_rad)
         debug('PGN127237: %s', msg)
         debug('heading_rad: %s', heading_rad)
-        debug('locked_heading_rad: %s', locked_heading_rad)
+        debug('locked_heading_rad: %s', cts_rad_local)
         canbus.sendPGN(msg);
         break;
       case 'wind':
@@ -390,7 +398,7 @@ function AC12_PGN127237 () {
         break;
     }
   } else {
-    var msg = util.format(heading_track_pgn['standby'], (new Date()).toISOString(), canbus.candevice.address, 255, heading_rad)
+      var msg = util.format(heading_track_pgn['standby'], (new Date()).toISOString(), canbus.candevice.address, 255, heading_rad)
     canbus.sendPGN(msg);
   }
 }
@@ -662,10 +670,12 @@ function mainLoop () {
               // if (PGN130850.match(/^0c,41,9f,01 <- Autopilot device id
               if (PGN130850.match(/^0c,41,9f,..,ff,ff,..,1a,00,02,ae,00/)) { // -1
                 key_button = "-1";
-                debug('B&G button press -1');
+		  cts_internal_rad -= radians_per_degree;
+                  debug('B&G button press -1, subtracted number.');
               } else if (PGN130850.match(/^0c,41,9f,..,ff,ff,..,1a,00,03,ae,00/)) { // +1
-                key_button = "+1";
-                debug('B&G button press +1');
+                  key_button = "+1";
+		  cts_internal_rad += radians_per_degree;
+                  debug('B&G button press +1, added number.');
               } else if (PGN130850.match(/^0c,41,9f,..,ff,ff,..,1a,00,02,d1,06/)) { // -10
                 key_button = "-10";
                 debug('B&G button press -10');
@@ -724,7 +734,8 @@ function mainLoop () {
                     debug('Sending Seatalk key state pgn 126720 %j', pgn126720);
                     canbus.sendPGN(pgn126720);
                   } else if (state_button == 'headinghold') {
-                    debug('B&G button Engage pressed. Engaging mode %s', ac12mode)
+                      debug('B&G button Engage pressed. Engaging mode %s', ac12mode)
+		      ac12state = 'engaged'
                     pgn126720 = util.format(raymarine_state_command, (new Date()).toISOString(), canbus.candevice.address, autopilot_dst, raymarine_state_code['headinghold']);
                     debug('Sending Seatalk key state pgn 126720 %j', pgn126720);
                     canbus.sendPGN(pgn126720);
@@ -749,7 +760,8 @@ function mainLoop () {
                     debug('Sending Seatalk key state pgn 126720 %j', pgn126720);
                     canbus.sendPGN(pgn126720);
                   } else if (state_button == 'standby') {
-                    debug('B&G button Standby pressed. Standby in mode %s', ac12mode)
+                      debug('B&G button Standby pressed. Standby in mode %s', ac12mode)
+		      ac12state = 'standby';
                     pgn126720 = util.format(raymarine_state_command, (new Date()).toISOString(), canbus.candevice.address, autopilot_dst, raymarine_state_code['standby']);
                     debug('Sending Seatalk key state pgn 126720 %j', pgn126720);
                     canbus.sendPGN(pgn126720);
