@@ -352,7 +352,15 @@ function AC12_PGN65341 () {
 
 function AC12_PGN127245 () {
   const message = "%s,2,127245,%s,255,8,%s"
-  msg = util.format(message, (new Date()).toISOString(), canbus.candevice.address, rudder_pgn_data)
+    //  msg = util.format(message, (new Date()).toISOString(), canbus.candevice.address, rudder_pgn_data)
+    //    local_rudder_data = "00,00,00,00,22,22,FF,FF"
+    epoch_seconds = Math.round(Date.now() / 200)
+    angle_animated = ((epoch_seconds % 20) - 10) * 4;
+    angle_units = angle_animated /180 * Math.PI / 0.0001;
+    angle_units_local = padd((angle_units & 0xff).toString(16), 2) + "," + padd(((angle_units >> 8) & 0xff).toString(16), 2);
+    local_rudder_data = util.format("00,00,00,00,%s,FF,FF", angle_units_local)
+    debug('PGN127245: Rudder angle %s, a units %s, data string %s', angle_animated, angle_units, local_rudder_data)
+  msg = util.format(message, (new Date()).toISOString(), canbus.candevice.address, local_rudder_data)
   canbus.sendPGN(msg)
 }
 
@@ -629,8 +637,9 @@ switch (emulate) {
       setInterval(AC12_PGN65341_02, 5000) // Every 5 second
       // setInterval(AC12_PGN65341_1s, 1000) // Every second
       setInterval(AC12_PGN65341_5s, 5000) // Every 5 seconds
-      setInterval(AC12_PGN65305, 1000)
-      // setInterval(AC12_PGN127245, 200); // Every 200ms
+    setInterval(AC12_PGN65305, 1000)
+    // Rudder:
+      setInterval(AC12_PGN127245, 200); // Every 200ms
       setInterval(AC12_PGN130860, 1000) // Every second
       setInterval(heartbeat, 60000) // Heart beat PGN
       setInterval(AC12_PGN127237, 500) // Heading/track PGN
